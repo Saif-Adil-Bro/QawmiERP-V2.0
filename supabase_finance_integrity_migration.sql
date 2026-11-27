@@ -800,7 +800,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION public.finance_apply_recovery(t uuid, actor uuid, plan jsonb) RETURNS void
-LANGUAGE plpgsql SET search_path='' SET qawmi.registry_write='on' AS $$
+LANGUAGE plpgsql SET search_path='' AS $$
 DECLARE
   m jsonb:=public.portal_locked_metadata(t); op text:=plan->>'operation'; ref jsonb; k text; old_rows jsonb; incoming jsonb; r jsonb; saved jsonb;
   meta_keys text[]; tab oid; f record; ok boolean; cols text; setters text; i int; stats jsonb:=plan->'audit';
@@ -809,6 +809,7 @@ DECLARE
   safe_tables constant text[]:=ARRAY['routines','exam_routines','hifz_logs','kitab_logs','attendance','teacher_attendance','biometric_punch_events','leaves','exams','exam_subjects','exam_results','question_bank','exam_papers','books','book_issues','notices','sms_templates','sms_logs','alumni'];
   safe_keys constant text[]:=ARRAY['routines','exam_routines','hifz_logs','kitab_logs','hifz_records','biometric_devices','biometric_mappings','biometric_logs','teacher_attendance','student_leaves','teacher_leaves','student_leave_applications','teacher_leave_applications','leaves','published_exams','exam_end_dates','exam_subjects','question_bank','exam_papers','exam_papers_data','id_cards','id_card_templates','id_card_counter','id_card_builder_config','id_card_audit_logs','certificates','certificate_templates','certificate_audit_logs','certificate_counter','certificate_types','certificate_prefix','verification_logs','books','book_issues','library_books','parent_feedbacks','parent_appointments','absence_alerts','notices','sms_templates','sms_logs','sms_gateway','system_notifications','read_notification_ids','alumni'];
 BEGIN
+  PERFORM set_config('qawmi.registry_write', 'on', true);
   SELECT value INTO STRICT ref FROM jsonb_array_elements(m->'backup_history') WHERE value->>'id'=plan->>'snapshot_id' AND value->>'type'='AUTO_SNAPSHOT';
   IF NOT EXISTS(SELECT FROM public.users WHERE madrasa_id=t AND id=actor) OR (op IN ('merge','replace','wipe') AND ref->>'storage_path' LIKE 'snapshots/'||t::text||'/%' AND ref->>'checksum'<>'' AND ref->'modules'=stats->'modules') IS NOT TRUE THEN RAISE EXCEPTION 'Verified recovery snapshot required'; END IF;
   IF op='replace' AND plan->'tables'<>'{}' THEN RAISE EXCEPTION 'Selective table replacement is not supported'; END IF;

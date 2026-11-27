@@ -23,9 +23,10 @@ GRANT EXECUTE ON FUNCTION public.round7_create_scheduled_bill(uuid,jsonb) TO ser
 -- Compare only the keys the operator actually read, under a fresh tenant lock.
 -- Do not send a whole school document back in an UPDATE or in a URL filter.
 CREATE OR REPLACE FUNCTION public.round7_patch_registry(t uuid, expected jsonb, patch jsonb)
-RETURNS boolean LANGUAGE plpgsql SET search_path='' SET qawmi.registry_write='on' AS $$
+RETURNS boolean LANGUAGE plpgsql SET search_path='' AS $$
 DECLARE m jsonb:=public.portal_locked_metadata(t); k text;
 BEGIN
+  PERFORM set_config('qawmi.registry_write', 'on', true);
   FOR k IN SELECT jsonb_object_keys(patch) LOOP
     IF k NOT IN ('biometric_devices','biometric_mappings','system_audit_logs_fallback') OR jsonb_typeof(patch->k)<>'array'
       THEN RAISE EXCEPTION 'Invalid registry patch'; END IF;
@@ -86,12 +87,13 @@ $$;
 -- and attendance are one transaction. No machine data can overwrite manual leave.
 CREATE OR REPLACE FUNCTION public.biometric_apply_events(
   t uuid, dev text, src text, events jsonb, audience text, credential jsonb, replay jsonb
-) RETURNS jsonb LANGUAGE plpgsql SET search_path='' SET qawmi.registry_write='on' AS $$
+) RETURNS jsonb LANGUAGE plpgsql SET search_path='' AS $$
 DECLARE m jsonb:=public.portal_locked_metadata(t); d jsonb; r jsonb; mappings jsonb; link jsonb; old jsonb;
   e public.biometric_punch_events; at_time timestamptz; day date; pin text; person uuid; attendance_status text;
   mapped int:=0; unknown_count int:=0; duplicates int:=0; skipped int:=0; failed int:=0; added_days int:=0; n int;
   unknown_ids text[]:='{}'; failure_reason text; legacy_id text;
 BEGIN
+  PERFORM set_config('qawmi.registry_write', 'on', true);
   SELECT value INTO STRICT d FROM jsonb_array_elements(m->'biometric_devices') WHERE value->>'id'=dev;
   IF src NOT IN ('usb_import','cloud_push','manual_sync') OR audience NOT IN ('all','student','teacher') THEN RAISE EXCEPTION 'Invalid import mode'; END IF;
   IF src='cloud_push' AND replay IS NULL AND ((d->>'status') IS DISTINCT FROM 'active' OR

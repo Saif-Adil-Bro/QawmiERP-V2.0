@@ -26,7 +26,7 @@ $$;
 --     -> NEVER overwrite (status = 'error', failed += 1)
 CREATE OR REPLACE FUNCTION public.biometric_apply_events(
   t uuid, dev text, src text, events jsonb, audience text, credential jsonb, replay jsonb
-) RETURNS jsonb LANGUAGE plpgsql SET search_path='' SET qawmi.registry_write='on' AS $$
+) RETURNS jsonb LANGUAGE plpgsql SET search_path='' AS $$
 DECLARE
   m jsonb := public.portal_locked_metadata(t);
   d jsonb;
@@ -56,6 +56,7 @@ DECLARE
   failure_reason text;
   legacy_id text;
 BEGIN
+  PERFORM set_config('qawmi.registry_write', 'on', true);
   IF replay IS NULL THEN
     SELECT value INTO STRICT d
       FROM jsonb_array_elements(coalesce(m->'biometric_devices', '[]'::jsonb))
